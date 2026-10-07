@@ -1,5 +1,5 @@
 [project]
-name = "dualmem"
+name = "dualmemory"
 version = "0.0.1"
 description = "Episodic + semantic memory layer for LLM agents, with provenance and validity windows"
 readme = "README.md"
