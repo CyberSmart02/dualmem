@@ -1,5 +1,5 @@
-import dualmem
+import dualmemory
 
 
 def test_import():
-    assert dualmem.hello() == "Hello from dualmem!"
+    assert dualmemory.hello() == "Hello from dualmemory!"
