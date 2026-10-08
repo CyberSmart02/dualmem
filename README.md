@@ -12,7 +12,7 @@ Every memory is traceable back to the conversation that produced it (provenance)
 ## Install
 
 ```bash
-pip install dualmem
+pip install dualmemory
 ```
 
 ## License
