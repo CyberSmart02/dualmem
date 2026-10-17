@@ -1,7 +1,18 @@
+from datetime import datetime
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from dualmemory.models import Base, Episode, EpisodeRow, Fact, FactRow
+from dualmemory.models import (
+    Base,
+    Edge,
+    EdgeRow,
+    Episode,
+    EpisodeRow,
+    Fact,
+    FactRevisionRow,
+    FactRow,
+)
 
 
 class SqlStore:
@@ -111,3 +122,68 @@ class SqlStore:
         with Session(self.engine) as session:
             rows = session.execute(select(FactRow.id)).scalars().all()
             return set(rows)
+
+      # --- edges -----------------------------------------------------------
+    def add_edge(self, src: int, dst: int, kind: str, weight: float = 1.0) -> None:
+        with Session(self.engine) as session:
+            session.add(EdgeRow(src=src, dst=dst, kind=kind, weight=weight))
+            session.commit()
+
+    def edges_for_fact(self, fact_id: int) -> list[Edge]:
+        """All derived_from edges from this fact (its supporting episodes)."""
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(EdgeRow).where(
+                    EdgeRow.src == fact_id, EdgeRow.kind == "derived_from"
+                )
+            ).scalars().all()
+            return [Edge(src=r.src, dst=r.dst, kind=r.kind, weight=r.weight)
+                    for r in rows]
+
+    def all_edge_kinds(self) -> set[str]:
+        """Distinct edge kinds in the store — used to enforce invariant I6."""
+        with Session(self.engine) as session:
+            rows = session.execute(select(EdgeRow.kind)).scalars().all()
+            return set(rows)
+
+    # --- fact updates & revisions ---------------------------------------
+    def add_revision(self, fact_id: int, previous_text: str,
+                     revised_at: datetime) -> None:
+        with Session(self.engine) as session:
+            session.add(FactRevisionRow(
+                fact_id=fact_id, previous_text=previous_text, revised_at=revised_at
+            ))
+            session.commit()
+
+    def update_fact_text(self, fact_id: int, new_text: str) -> None:
+        """Rewrite a fact's text in place (UPDATE action). Keeps id + valid_from."""
+        with Session(self.engine) as session:
+            row = session.get(FactRow, fact_id)
+            if row:
+                row.text = new_text
+                session.commit()
+
+    def supersede_fact(self, old_id: int, valid_to: datetime,
+                       new_fact_id: int) -> None:
+        """Close an old fact's validity window and point it at its replacement
+        (SUPERSEDE action). The old row is NEVER deleted (invariant I3)."""
+        with Session(self.engine) as session:
+            row = session.get(FactRow, old_id)
+            if row:
+                row.valid_to = valid_to
+                row.superseded_by = new_fact_id
+                session.commit()
+
+    def valid_facts_for_subject(self, conversation_id: str,
+                                subject: str) -> list[Fact]:
+        """Currently-valid facts (valid_to is NULL) for a subject — the
+        candidates the adjudicator compares a new candidate against."""
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(FactRow).where(
+                    FactRow.conversation_id == conversation_id,
+                    FactRow.subject == subject,
+                    FactRow.valid_to.is_(None),
+                )
+            ).scalars().all()
+            return [self._row_to_fact(r) for r in rows]

@@ -43,6 +43,11 @@ class CandidateFact(BaseModel):
     text: str
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     event_time: datetime
+class Edge(BaseModel):
+    src: int
+    dst: int
+    kind: str          # 'derived_from' | 'relates_to'
+    weight: float = 1.0
 # ---------------------------------------------------------------------------
 # SQLAlchemy tables — persistence (the SQLite layer only)
 # One Base that all tables inherit from.
@@ -74,3 +79,23 @@ class FactRow(Base):
     valid_to: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     superseded_by: Mapped[int | None] = mapped_column(Integer, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime)
+class EdgeRow(Base):
+    """Provenance graph. kind = 'derived_from' (fact->episode) or
+    'relates_to' (episode->fact). src/dst are the node ids."""
+    __tablename__ = "edges"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    src: Mapped[int] = mapped_column(Integer)
+    dst: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String)        # 'derived_from' | 'relates_to'
+    weight: Mapped[float] = mapped_column(default=1.0)
+
+
+class FactRevisionRow(Base):
+    """Append-only history of fact text, written whenever UPDATE rewrites a fact."""
+    __tablename__ = "fact_revisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    fact_id: Mapped[int] = mapped_column(Integer)
+    previous_text: Mapped[str] = mapped_column(String)
+    revised_at: Mapped[datetime] = mapped_column(DateTime)

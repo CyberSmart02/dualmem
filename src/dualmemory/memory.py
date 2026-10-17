@@ -1,25 +1,25 @@
-from datetime import datetime
-
 from dualmemory.extract import Extractor
-from dualmemory.models import CandidateFact, Episode, Fact, Message
+from dualmemory.link import Adjudicator
+from dualmemory.models import Episode, Fact, Message
 from dualmemory.providers import LLM, Embedder
 from dualmemory.store.sql import SqlStore
 from dualmemory.store.vectors import VectorStore
 
 
 class Memory:
-    """Public API. Orchestrates extraction + storage.
+    """Public API. Orchestrates extraction + adjudication + storage.
 
-    add(): messages -> Extractor -> episodes + candidate facts -> stored.
-           Episodes go to SQLite + FAISS. Candidates become facts (naive ADD
-           for now; real adjudication is the next milestone)."""
+    add(): messages -> extractor -> episodes + candidate facts.
+           Episodes -> SQLite + FAISS. Candidates -> adjudicator, which
+           decides EVIDENCE/UPDATE/SUPERSEDE/ADD against existing facts."""
 
     def __init__(self, embedder: Embedder, llm: LLM,
                  db_url: str = "sqlite:///:memory:") -> None:
         self.embedder = embedder
         self.sql = SqlStore(db_url)
-        self.vectors = VectorStore(dim=embedder.dim)      # episode vectors
+        self.vectors = VectorStore(dim=embedder.dim)
         self.extractor = Extractor(llm)
+        self.adjudicator = Adjudicator(llm, self.sql)
         self._next_episode_id = 1
         self._next_fact_id = 1
 
@@ -34,23 +34,24 @@ class Memory:
             self.vectors.add(ep.id, self.embedder.embed(ep.text))
             self._next_episode_id = max(self._next_episode_id, ep.id + 1)
 
-        # naive ADD: each candidate becomes a committed fact (no adjudication yet)
-        facts = [self._commit_candidate(c, messages) for c in candidates]
-        return episodes, facts
+        # attribute candidates to the first episode of this batch (v0 simplification)
+        source_ep_id = episodes[0].id if episodes else None
 
-    def _commit_candidate(self, c: CandidateFact, messages: list[Message]) -> Fact:
-        fact = Fact(
-            id=self._next_fact_id,
-            conversation_id=messages[0].conversation_id,
-            subject=c.subject,
-            text=c.text,
-            confidence=c.confidence,
-            valid_from=c.event_time,          # fact holds from when it was stated
-            created_at=datetime.now(),
-        )
-        self._next_fact_id += 1
-        self.sql.add_fact(fact)
-        return fact
+        facts: list[Fact] = []
+        for c in candidates:
+            if source_ep_id is None:
+                continue   # no episode to attach provenance to; skip
+            result = self.adjudicator.adjudicate(
+                candidate=c,
+                conversation_id=messages[0].conversation_id,
+                source_episode_id=source_ep_id,
+                new_fact_id=self._next_fact_id,
+            )
+            if result is not None:
+                facts.append(result)
+                if result.id == self._next_fact_id:   # only bump on a NEW fact
+                    self._next_fact_id += 1
+        return episodes, facts
 
     def search(self, query: str, k: int = 5) -> str:
         q_vec = self.embedder.embed(query)
