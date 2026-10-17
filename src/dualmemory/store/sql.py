@@ -1,19 +1,19 @@
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from dualmemory.models import Base, Episode, EpisodeRow
+from dualmemory.models import Base, Episode, EpisodeRow, Fact, FactRow
 
 
 class SqlStore:
-    """SQLite source-of-truth for episodes. Converts between the pydantic
-    Episode (logic/transport) and the EpisodeRow table (persistence)."""
+    """SQLite source-of-truth for episodes and facts. Converts between the
+    pydantic models (logic/transport) and the table rows (persistence)."""
 
     def __init__(self, url: str = "sqlite:///:memory:") -> None:
         # ":memory:" = ephemeral DB (great for tests). A path = a real file.
         self.engine = create_engine(url)
         Base.metadata.create_all(self.engine)   # create tables if absent
 
-    # --- conversions between pydantic Episode <-> EpisodeRow -------------
+    # --- episode conversions ---------------------------------------------
     @staticmethod
     def _to_row(ep: Episode) -> EpisodeRow:
         return EpisodeRow(
@@ -36,7 +36,7 @@ class SqlStore:
             source_message_ids=ids,
         )
 
-    # --- CRUD ------------------------------------------------------------
+    # --- episode CRUD ----------------------------------------------------
     def add_episode(self, ep: Episode) -> None:
         with Session(self.engine) as session:
             session.add(self._to_row(ep))
@@ -65,3 +65,49 @@ class SqlStore:
         with Session(self.engine) as session:
             rows = session.execute(select(EpisodeRow)).scalars().all()
             return [self._to_episode(r) for r in rows]
+
+    # --- fact conversions ------------------------------------------------
+    @staticmethod
+    def _fact_to_row(f: Fact) -> FactRow:
+        return FactRow(
+            id=f.id,
+            conversation_id=f.conversation_id,
+            subject=f.subject,
+            text=f.text,
+            confidence=f.confidence,
+            valid_from=f.valid_from,
+            valid_to=f.valid_to,
+            superseded_by=f.superseded_by,
+            created_at=f.created_at,
+        )
+
+    @staticmethod
+    def _row_to_fact(row: FactRow) -> Fact:
+        return Fact(
+            id=row.id,
+            conversation_id=row.conversation_id,
+            subject=row.subject,
+            text=row.text,
+            confidence=row.confidence,
+            valid_from=row.valid_from,
+            valid_to=row.valid_to,
+            superseded_by=row.superseded_by,
+            created_at=row.created_at,
+        )
+
+    # --- fact CRUD -------------------------------------------------------
+    def add_fact(self, f: Fact) -> None:
+        with Session(self.engine) as session:
+            session.add(self._fact_to_row(f))
+            session.commit()
+
+    def get_fact(self, id_: int) -> Fact | None:
+        with Session(self.engine) as session:
+            row = session.get(FactRow, id_)
+            return self._row_to_fact(row) if row else None
+
+    def all_fact_ids(self) -> set[int]:
+        """Every fact id in SQLite."""
+        with Session(self.engine) as session:
+            rows = session.execute(select(FactRow.id)).scalars().all()
+            return set(rows)

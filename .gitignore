@@ -8,3 +8,26 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Environment / secrets
+.env
+.env.*
+
+# Databases & vector indexes (generated at runtime)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.faiss
+*.index
+
+# LLM / embedding response cache (can get large)
+.cache/
+cache/
+
+# Benchmark data (licensed; never commit — see DATASETS.md)
+benchmarks/data/
+
+# Caches
+.pytest_cache/
+.ruff_cache/
