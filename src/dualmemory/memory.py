@@ -1,5 +1,8 @@
 from datetime import datetime
 
+import numpy as np
+
+from dualmemory.consolidate import Consolidator, cluster_vectors, is_eligible
 from dualmemory.extract import Extractor
 from dualmemory.link import Adjudicator
 from dualmemory.models import Episode, Fact, Message
@@ -34,6 +37,7 @@ class Memory:
         self.fact_vectors = VectorStore(dim=embedder.dim)   # fact vectors
         self.extractor = Extractor(llm)
         self.adjudicator = Adjudicator(llm, self.sql)
+        self.consolidator = Consolidator(llm)
         self._next_episode_id = 1
         self._next_fact_id = 1
 
@@ -71,6 +75,37 @@ class Memory:
                 self.fact_vectors.add(result.id, self.embedder.embed(result.text))
         return episodes, facts
 
+    def consolidate(self, conversation_id: str) -> list[Fact]:
+        """P2: cluster episodes, promote eligible clusters to candidate facts,
+        run each through the same adjudicator as extraction."""
+        episodes = [e for e in self.sql.all_episodes()
+                    if e.conversation_id == conversation_id]
+        if not episodes:
+            return []
+
+        vectors = np.stack([self.embedder.embed(e.text) for e in episodes])
+        linked = self.sql.episode_ids_with_facts()
+
+        facts: list[Fact] = []
+        for idx_group in cluster_vectors(vectors):
+            cluster = [episodes[i] for i in idx_group]
+            if not is_eligible(cluster, linked):
+                continue
+            candidate = self.consolidator.propose(cluster)
+            if candidate is None:
+                continue
+            result = self.adjudicator.adjudicate(
+                candidate=candidate,
+                conversation_id=conversation_id,
+                source_episode_id=cluster[-1].id,   # provenance: newest supporting episode
+                new_fact_id=self._next_fact_id,
+            )
+            if result is not None:
+                facts.append(result)
+                if result.id == self._next_fact_id:
+                    self._next_fact_id += 1
+                self.fact_vectors.add(result.id, self.embedder.embed(result.text))
+        return facts
     # ------------------------------------------------------------------ read
     def search(self, query: str, token_budget: int = 2000,
                t_q: datetime | None = None, n_candidates: int = 50) -> str:

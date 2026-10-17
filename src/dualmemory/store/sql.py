@@ -146,6 +146,13 @@ class SqlStore:
             rows = session.execute(select(EdgeRow.kind)).scalars().all()
             return set(rows)
 
+    def episode_ids_with_facts(self) -> set[int]:
+        """Episode ids that some fact already derives from (derived_from dst)."""
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(EdgeRow.dst).where(EdgeRow.kind == "derived_from")
+            ).scalars().all()
+            return set(rows)
     # --- fact updates & revisions ---------------------------------------
     def add_revision(self, fact_id: int, previous_text: str,
                      revised_at: datetime) -> None:
