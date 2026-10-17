@@ -43,11 +43,7 @@ def score_item(sim: float, t_q: datetime, event_time: datetime,
 
 def fact_is_valid_at(fact: Fact, t_q: datetime) -> bool:
     """R3 validity: valid_from <= t_q and (valid_to is None or t_q < valid_to)."""
-    if fact.valid_from > t_q:
-        return False
-    if fact.valid_to is not None and t_q >= fact.valid_to:
-        return False
-    return True
+    return fact.valid_from <= t_q and (fact.valid_to is None or t_q < fact.valid_to)
 
 
 def episode_is_visible_at(ep: Episode, t_q: datetime) -> bool:
