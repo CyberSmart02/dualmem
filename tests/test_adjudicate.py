@@ -94,3 +94,28 @@ def test_I6_only_valid_edge_kinds():
     mem = _mem({"Extract memory": _extraction("is vegetarian")})
     mem.add([_msg(1, "I'm vegetarian", 1)])
     assert mem.sql.all_edge_kinds() <= {"derived_from", "relates_to"}
+
+def test_superseded_fact_not_retrieved_at_query_time():
+    # vegetarian (Jan 1), then eats meat (Jan 6) → SUPERSEDE
+    mem = _mem({"Extract memory": _extraction("is vegetarian", day=1)})
+    _, first = mem.add([_msg(1, "I'm vegetarian", 1)])
+    old_id = first[0].id
+
+    decision = json.dumps({"action": "SUPERSEDE", "target_id": old_id})
+    mem.extractor.llm = mem.adjudicator.llm = FakeLLM({
+        "Extract memory": _extraction("eats meat", day=6),
+        "ONE action": decision,
+    })
+    mem.add([_msg(2, "actually I eat meat now", 6)])
+
+    result = mem.search("what does the user eat", token_budget=2000,
+                        t_q=datetime(2026, 1, 10))
+
+    # Split the Facts section from the Events section.
+    facts_section = result.split("Events:")[0]
+
+    # The valid fact is present; the superseded fact is filtered OUT of Facts.
+    assert "eats meat" in facts_section
+    assert "is vegetarian" not in facts_section   # stale fact excluded by validity
+    # (the historical episode "said: is vegetarian" may still appear under Events —
+    #  that's correct: events are immutable, only facts get superseded)

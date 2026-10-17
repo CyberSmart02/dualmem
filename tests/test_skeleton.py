@@ -23,12 +23,12 @@ def test_add_extracts_and_search_renders():
                            _msg(2, "weather was rainy", 2)])
     assert len(episodes) == 2
 
-    result = mem.search("coffee", k=2)
+    result = mem.search("coffee", token_budget=2000)
     assert "Events:" in result
     assert "flat white coffee ordered" in result
 
 
 def test_search_on_empty_memory():
     mem = _mem([])
-    result = mem.search("anything", k=5)
-    assert result == "Events:\n(none)"
+    result = mem.search("anything", token_budget=2000)
+    assert "(none)" in result          # empty render
